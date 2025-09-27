@@ -67,7 +67,8 @@ def main():
         }
         return "SUCCESS"
     
-    def hand_configure_dss(split, addr):
+    #TO DO: Implement the handler for configuring dss after implementing client and disk to have both ports
+    def handle_configure_dss(split, addr):
         return
 
 
@@ -90,7 +91,7 @@ def main():
         elif command == "register-disk":
             handler = handle_register_disk(split, addr)
         elif command == "configure-dss":
-            handler = handler_configure_dss(split, addr)
+            handler = handle_configure_dss(split, addr)
         else:
             handler = "Invalid command. Please type register-user, register-disk, or configure-dss."
 
