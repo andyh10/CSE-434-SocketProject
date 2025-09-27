@@ -15,13 +15,24 @@ def main():
 
     sock.bind(('127.0.0.1', int(sys.argv[1])))
 
+    #Create Lists to Store 
+    clients = {}
+    disks = {}
+    dss = {}
+
     # Data 
     while True:
         data, addr = sock.recvfrom(1024)
 
-        # FIXME implement proper command handling.
-        print(f"Received: {data.decode('utf-8')}")
-        print(f"From: {addr}")
+        #Allocate the message
+        message = data.decode("utf-8").strip()
 
-        sock.sendto(b"I received your message.", addr)
+        split = message.split()
+
+        if not split:
+            continue
+        command = split[0]
+
+        #Handle Commands
+        
 main()
