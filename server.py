@@ -71,6 +71,19 @@ def main():
     def handle_configure_dss(split, addr):
         return
 
+    def deregister_user(username):
+        if username in clients:
+            del clients[username]
+            return "SUCCESS"
+        else:
+            return "FAILURE"
+        
+    def deregister_disk(diskname):
+        if diskname in disks:
+            del disks[diskname]
+            return "SUCCESS"
+        else:
+            return "FAILURE"
 
     # Data 
     while True:
@@ -92,6 +105,12 @@ def main():
             handler = handle_register_disk(split, addr)
         elif command == "configure-dss":
             handler = handle_configure_dss(split, addr)
+        elif command == "deregister-user":
+            username = split[1]
+            handler = deregister_user(username)
+        elif command == "deregister-user":
+            diskname = split[1]
+            handler = deregister_disk(diskname)
         else:
             handler = "Invalid command. Please type register-user, register-disk, or configure-dss."
 
