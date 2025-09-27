@@ -112,7 +112,7 @@ def main():
             diskname = split[1]
             handler = deregister_disk(diskname)
         else:
-            handler = "Invalid command. Please type register-user, register-disk, or configure-dss."
+            handler = "Invalid command."
 
 main()
 
