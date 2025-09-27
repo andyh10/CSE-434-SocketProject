@@ -34,5 +34,13 @@ def main():
         command = split[0]
 
         #Handle Commands
-        
+        if command == "register-user":
+            handler = handle_register_user(split, addr)
+        elif command == "register-disk":
+            handler = handle_register_disk(split, addr)
+        elif command == "configure-dss":
+            handler = handler_configure_dss(split, addr)
+        else:
+            handler = "Invalid command. Please type register-user, register-disk, or configure-dss."
+
 main()
