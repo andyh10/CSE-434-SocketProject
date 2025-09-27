@@ -20,6 +20,57 @@ def main():
     disks = {}
     dss = {}
 
+    #Handler Functions for register-user, register-disk, configure-dss
+    def handle_register_user(split, addr):
+        if len(split) != 5:
+            return "FAILURE: Please make sure you have the correct arguments."
+        
+        username = split[1]
+        ip = split[2]
+        mport = split[3]
+        cport = split[4]
+
+        if username in clients:
+            return "FAILURE: User already in the list."
+        
+        for values in clients.values():
+            if values["m-port"] == mport or values["c-port"] == cport:
+                return "FAILURE: Ports are already in use."
+            
+        clients[username] = {
+            "ip": ip,
+            "m-port": mport,
+            "c-port": cport
+        }
+        return "SUCCESS"
+    
+    def handle_register_disk(split, addr):
+        if len(split) != 5:
+            return "FAILURE: Please make sure you have the correct arguments."
+        
+        diskname = split[1]
+        ip = split[2]
+        mport = split[3]
+        cport = split[4]
+
+        if diskname in clients:
+            return "FAILURE: Disk already in the list."
+        
+        for values in disks.values():
+            if values["m-port"] == mport or values["c-port"] == cport:
+                return "FAILURE: Ports are already in use."
+            
+        disks[diskname] = {
+            "ip": ip,
+            "m-port": mport,
+            "c-port": cport
+        }
+        return "SUCCESS"
+    
+    def hand_configure_dss(split, addr):
+        return
+
+
     # Data 
     while True:
         data, addr = sock.recvfrom(1024)
@@ -44,3 +95,4 @@ def main():
             handler = "Invalid command. Please type register-user, register-disk, or configure-dss."
 
 main()
+
