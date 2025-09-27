@@ -32,6 +32,7 @@ def handle_register_user(split, data):
     return "SUCCESS"
 
 def handle_register_disk(split, data):
+    # Syntax check
     if len(split) != 5:
         return "FAILURE: Please make sure you have the correct arguments."
     
@@ -43,6 +44,11 @@ def handle_register_disk(split, data):
     if diskname in data:
         return "FAILURE: Disk already in the list."
     
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return "FAILURE: Invalid IP address for register-disk-command."
+
     for values in data.values():
         if values["m-port"] == mport or values["c-port"] == cport:
             return "FAILURE: Ports are already in use."
@@ -157,3 +163,4 @@ def main():
             handler = "Invalid command. Commands available: register-user, register-disk, or configure-dss."
 
 main()
+
