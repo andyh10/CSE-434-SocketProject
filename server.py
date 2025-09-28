@@ -11,6 +11,9 @@ def handle_register_user(split, data):
     ip = split[2]
     mport = split[3]
     cport = split[4]
+
+    if len(username) > 15:
+        return "FAILURE: User name has to be 15 characters or less."
     
     if username in data:
         return "FAILURE: User already in the list."
@@ -41,6 +44,9 @@ def handle_register_disk(split, data):
     mport = split[3]
     cport = split[4]
     state = "Free"
+
+    if len(username) > 15:
+        return "FAILURE: Disk name has to be 15 characters or less."
     
     if diskname in data:
         return "FAILURE: Disk already in the list."
@@ -165,6 +171,7 @@ def main():
             handler = "Invalid command. Commands available: register-user, register-disk, or configure-dss."
 
 main()
+
 
 
 
