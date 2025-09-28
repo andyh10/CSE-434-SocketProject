@@ -134,7 +134,7 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # Bind Socket
-    sock.bind(('127.0.0.1', int(sys.argv[1])))
+    sock.bind(('', int(sys.argv[1])))
 
     print("Server is now online !")
 
@@ -209,3 +209,4 @@ def main():
             sock.sendto(response, addr)
 
 main()
+
