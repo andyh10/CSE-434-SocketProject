@@ -32,8 +32,8 @@ def main():
     sock_peer = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # Bind to the local IP address and UDP port
-    sock_server.bind(('127.0.0.1', int(sys.argv[1])))
-    sock_peer.bind(('127.0.0.1', int(sys.argv[4])))
+    sock_server.bind(('', int(sys.argv[1])))
+    sock_peer.bind(('', int(sys.argv[4])))
 
     # Send data to server 
     message = input("Please type the command you want to send to the manager: ")
@@ -48,3 +48,4 @@ def main():
     sock_server.close()
     
 main()
+
