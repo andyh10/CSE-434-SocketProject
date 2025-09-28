@@ -11,7 +11,6 @@ def handle_register_user(split, data):
     ip = split[2]
     mport = split[3]
     cport = split[4]
-    state = "Free"
     
     if username in data:
         return "FAILURE: User already in the list."
@@ -28,8 +27,7 @@ def handle_register_user(split, data):
     data[username] = {
         "ip": ip,
         "m-port": mport,
-        "c-port": cport,
-        "state": state
+        "c-port": cport
     }
     return "SUCCESS"
 
@@ -42,7 +40,8 @@ def handle_register_disk(split, data):
     ip = split[2]
     mport = split[3]
     cport = split[4]
-
+    state = "Free"
+    
     if diskname in data:
         return "FAILURE: Disk already in the list."
     
@@ -58,7 +57,8 @@ def handle_register_disk(split, data):
     data[diskname] = {
         "ip": ip,
         "m-port": mport,
-        "c-port": cport
+        "c-port": cport,
+        "state": state
     }
     return "SUCCESS"
 
@@ -165,5 +165,6 @@ def main():
             handler = "Invalid command. Commands available: register-user, register-disk, or configure-dss."
 
 main()
+
 
 
