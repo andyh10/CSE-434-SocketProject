@@ -32,7 +32,7 @@ def main():
     sock_peer = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # Bind to the local IP address and UDP port
-    sock_server.bind(('127.0.0.1', int(sys.argv[1])))
+    sock_server.bind(('', int(sys.argv[1])))
     sock_peer = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     # Send data to server 
@@ -47,3 +47,4 @@ def main():
     sock_server.close()
     
 main()
+
