@@ -14,7 +14,7 @@ def handle_register_user(split, data):
 
     if len(username) > 15:
         return "FAILURE: User name has to be 15 characters or less."
-    
+
     if username in data:
         return "FAILURE: User already in the list."
     
@@ -45,12 +45,12 @@ def handle_register_disk(split, data):
     cport = split[4]
     state = "Free"
 
-    if len(username) > 15:
+    if len(diskname) > 15:
         return "FAILURE: Disk name has to be 15 characters or less."
-    
+
     if diskname in data:
-        return "FAILURE: Disk already in the list."
-    
+        return "FAILURE: Disk already in the list."  
+
     try:
         ipaddress.ip_address(ip)
     except ValueError:
@@ -68,24 +68,56 @@ def handle_register_disk(split, data):
     }
     return "SUCCESS"
 
-# TODO: Implement the handler for configuring dss after implementing client and disk to have both ports.
-def handle_configure_dss(split, addr):
-    return
+def handle_configure_dss(split, data_dss, data_disk):
+    # Syntax check
+    if len(split) != 4:
+        return "FAILURE: Please make sure you have the correct arguments."
+    
+    dssname = split[1]
+    number_of_disk = int(split[2])
+    striping_unit = int(split[3])
+
+    if number_of_disk >= 3 or number_of_disk <= 0:
+        return "FAILURE: Make sure the number of disks for the DSS is less than 3 and greater than 0."
+    
+    if sum(1 for disk in data_disk.values() if disk['state'] == "Free") < number_of_disk:
+        return "FAILURE: Insufficient amount of free disks for DSS."
+
+    if not (striping_unit == 128 or striping_unit == 256 or striping_unit == 512 or striping_unit == 1024):
+        return "FAILURE: Make sure the striping unit is beteen 128 and 1024 bytes."
+    
+    if dssname in data_dss:
+        return "FAILURE: Dss name already in use."
+    
+    # Initialize dss so we don't have errors.
+    data_dss.setdefault(dssname, [])
+
+    # add to data
+    for i in range(number_of_disk):
+        for disk_name, disk in data_disk.items():
+            if disk['state'] == "Free":
+                data_dss[dssname].append(disk_name)
+                disk['state'] = "InDSS"
+                break    
+
+    return "SUCCESS"
 
 def deregister_user(username, data):
     if username in data:
         del data[username]
         return "SUCCESS"
     else:
-        return "FAILURE"
-
-# TODO Add check for disks in-use.  
+        return "FAILURE: User not in system."
+  
 def deregister_disk(diskname, data):
     if diskname in data:
-        del data[diskname]
-        return "SUCCESS"
+        if data[diskname]['state'] == "InDSS":
+            return "FAILURE: Disk in use."
+        else:
+            del data[diskname]
+            return "SUCCESS"     
     else:
-        return "FAILURE"
+        return "FAILURE: Disk not in system."
 
 def main():
     # Syntax Check
@@ -146,8 +178,9 @@ def main():
 
         elif command == "configure-dss":
             con_dss_req_count += 1
-            handler = handle_configure_dss(split, addr)
+            handler = handle_configure_dss(split, dss, disks)
             print(f"Configure-dss command request number: {con_dss_req_count}")
+            print(f"Configured dss's is now: {dss}")
             response = handler.encode('utf-8')
             sock.sendto(response, addr)
 
@@ -159,19 +192,20 @@ def main():
             response = handler.encode('utf-8')
             sock.sendto(response, addr)
 
-        elif command == "deregister-user":
+        elif command == "deregister-disk":
             del_disk_req_count += 1
             diskname = split[1]
-            handler = deregister_disk(diskname, data)
+            handler = deregister_disk(diskname, disks)
             print(f"Delete-disk command request number: {del_disk_req_count}")
             response = handler.encode('utf-8')
             sock.sendto(response, addr)
 
+        elif command == "print":
+            print(f"Disks registered is now: {disks}")
+
         else:
-            handler = "Invalid command. Commands available: register-user, register-disk, or configure-dss."
+            handler = "Invalid command. Commands available: register-user, register-disk, configure-dss, deregister-user, deregister-disk."
+            response = handler.encode('utf-8')
+            sock.sendto(response, addr)
 
 main()
-
-
-
-
