@@ -77,8 +77,8 @@ def handle_configure_dss(split, data_dss, data_disk):
     number_of_disk = int(split[2])
     striping_unit = int(split[3])
 
-    if number_of_disk >= 3 or number_of_disk <= 0:
-        return "FAILURE: Make sure the number of disks for the DSS is less than 3 and greater than 0."
+    if number_of_disk < 3:
+        return "FAILURE: Make sure the number of disks for the DSS is greater than or equal to 3."
     
     if sum(1 for disk in data_disk.values() if disk['state'] == "Free") < number_of_disk:
         return "FAILURE: Insufficient amount of free disks for DSS."
@@ -209,4 +209,5 @@ def main():
             sock.sendto(response, addr)
 
 main()
+
 
