@@ -74,9 +74,14 @@ def handle_configure_dss(split, data_dss, data_disk):
         return "FAILURE: Please make sure you have the correct arguments."
     
     dssname = split[1]
-    number_of_disk = int(split[2])
-    striping_unit = int(split[3])
+    #Validate the inputs
+    try: 
 
+        number_of_disk = int(split[2])
+        striping_unit = int(split[3])
+    except ValueError:
+        return "FAILURE: Disks and striping unit must be integers."
+    
     if number_of_disk < 3:
         return "FAILURE: Make sure the number of disks for the DSS is greater than or equal to 3."
     
@@ -89,14 +94,18 @@ def handle_configure_dss(split, data_dss, data_disk):
     if dssname in data_dss:
         return "FAILURE: Dss name already in use."
     
-    # Initialize dss so we don't have errors.
-    data_dss.setdefault(dssname, [])
+    # Initialize dss entry to have disks, striping unit, and files.
+    data_dss[dssname] = {
+        "disks": [],        #Have disknames as a list
+        "striping_unit": striping_unit,
+        "files": {}
+    }
 
     # add to data
     for i in range(number_of_disk):
         for disk_name, disk in data_disk.items():
             if disk['state'] == "Free":
-                data_dss[dssname].append(disk_name)
+                data_dss[dssname]["disks"].append(disk_name)
                 disk['state'] = "InDSS"
                 break    
 
@@ -118,6 +127,28 @@ def deregister_disk(diskname, data):
             return "SUCCESS"     
     else:
         return "FAILURE: Disk not in system."
+    
+def handle_ls(dss):
+    if not dss:
+        return "FAILURE: There is no DSS configured."
+    
+    Success = ["SUCCESS"]   # Indicate success line
+    
+    #We need to iterate each DSS
+    for dssname, dss_info in dss.items():
+        disks = ", ".join(dss_info["disks"])
+        striping_unit = dss_info["striping_unit"]
+        n = len(dss_info["disks"])
+        Success.append(f"{dssname}: Disk array with n={n} ({disks}) with striping-unit {striping_unit} B")
+        
+        #List every file stored on the DSS
+        for file_info in dss_info["files"]:
+            filename = file_info["file_name"]
+            size = file_info["file_size"]
+            owner = file_info["owner"]
+            Success.append(f"{filename} {size} B {owner}")
+            
+    return "\n".join(Success)
 
 def main():
     # Syntax Check
@@ -147,6 +178,7 @@ def main():
     con_dss_req_count  = 0
     del_user_req_count = 0
     del_disk_req_count = 0
+    ls_req_count = 0
 
     while True:
         data, addr = sock.recvfrom(1024)
@@ -198,6 +230,14 @@ def main():
             handler = deregister_disk(diskname, disks)
             print(f"Delete-disk command request number: {del_disk_req_count}")
             response = handler.encode('utf-8')
+            sock.sendto(response, addr)
+            
+        elif command == "ls":
+            ls_req_count += 1
+            handler = handle_ls(dss)
+            response = handler.encode('utf-8')
+            print(f"LS command request number: {ls_req_count}")
+            print(f"Current DSS List: {dss}")
             sock.sendto(response, addr)
 
         elif command == "print":
