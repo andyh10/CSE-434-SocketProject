@@ -2,6 +2,37 @@ import socket
 import ipaddress
 import sys
 
+def handle_copy_message(sock_peer, storage):
+    # Handle incoming peer copy messages.
+    # Use in a thread.
+
+    while True:
+        try:
+            data, addr = sock_peer.recvfrom(65536) # Large buffer for data.
+
+            # Message format: WRITE <filename> <stripe_num> <block_type> <block_data>
+            message_split = data.split()
+            command = message_split[0].decode('utf-8')
+
+            # Handle WRITE Command
+            if command == "WRITE":
+                filename = message_split[1].decode('utf-8')
+                stripe_num = message_split[2].decode('utf-8')
+                block_type = message_split[3].decode('utf-8')
+                block_data = message_split[4].decode('utf-8')
+
+                if filename not in storage:
+                    storage[filename] = {}
+                storage[filename][stripe_num] = {
+                    'type': block_type,
+                    'data': block_data
+                }
+
+                print(f"Stored {block_type} block for stripe {stripe_num} of file {filename}")
+
+        except Exception:
+            print("Error handling peer copy message.")  
+
 def main():
     # Syntax check
     if len(sys.argv) != 5:
