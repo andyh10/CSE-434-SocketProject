@@ -183,24 +183,21 @@ def main():
                 if not message_split[3]:
                     print("Please provide an owner.")
                     continue
-                if message_split[4]:
-                    print("Too many arguments.")
-                    continue
             except IndexError:
                 print("Please utilize the correct syntax for copy.")
                 print("copy <filename> <filesize> <owner>")
                 continue
 
-        # # Send data to server 
-        # sock_server.sendto(message.encode("utf-8"), (sys.argv[2], int(sys.argv[3])))
+        # Send data to server 
+        sock_server.sendto(message.encode("utf-8"), (sys.argv[2], int(sys.argv[3])))
 
-        # # Wait for a server response
-        # data, addr = sock_server.recvfrom(1024)
-        # data_decoded = data.decode('utf-8')
+        # Wait for a server response
+        data, addr = sock_server.recvfrom(1024)
+        data_decoded = data.decode('utf-8')
 
-        # print(f"Server Response: {data_decoded}")
+        print(f"Server Response: {data_decoded}")
 
-        data_decoded = "DSS1 3 128 DISK_1 0.0.0.0 13150 DISK_2 0.0.0.0 13151 DISK_3 0.0.0.0 13152" #FIXME GET RID OF THIS 
+        # data_decoded = "DSS1 3 128 DISK_1 0.0.0.0 13150 DISK_2 0.0.0.0 13151 DISK_3 0.0.0.0 13152" #FIXME GET RID OF THIS 
 
         # Copy command
         if copy:
@@ -232,17 +229,15 @@ def main():
 
                 copy_file_to_dss(filename, filesize, disks, dss_name, num_drives, striping_unit, sock_peer)
 
-                # # Send data to server
-                # sock_server.sendto(b"copy-complete", (sys.argv[2], int(sys.argv[3])))
+                # Send data to server
+                sock_server.sendto(b"copy-complete", (sys.argv[2], int(sys.argv[3])))
 
-                # # Wait for a server response
-                # data, addr = sock_server.recvfrom(1024)
-                # print(f"Server Response: {data.decode('utf-8')}")
-
-
-
+                # Wait for a server response
+                data, addr = sock_server.recvfrom(1024)
+                print(f"Server Response: {data.decode('utf-8')}")
 
     sock_server.close()
+    sock_peer.close()
     
 main()
 
