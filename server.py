@@ -1,6 +1,7 @@
 import socket
 import ipaddress
 import sys
+import random
 
 def handle_register_user(split, data):
     # Syntax check
@@ -150,6 +151,32 @@ def handle_ls(dss):
             
     return "\n".join(Success)
 
+def handle_copy(split, dss, data, username):
+    # Phase 1:
+
+    filename = split[1]
+    filesize = split[2]
+    owner = split[3]
+
+    if not dss:
+        return "FAILURE: No DSS configured."
+    
+    # Select a random dss.
+    dss_name = random.choice(list(dss.keys()))
+    dss_info = dss[dss_name]
+
+    num_drives = len(dss_info['disks'])
+    striping_unit = dss_info['striping_unit']
+
+    # Build the response.
+    response = f"{dss_name} {num_drives} {striping_unit}"
+    for disk_name in dss_info['disks']:
+        response += f" {disk_name} {dss[disk_name]['ip']} {dss[disk_name]['c-port']}"
+
+    
+
+    return response
+
 def main():
     # Syntax Check
     if len(sys.argv) != 2:
@@ -179,6 +206,7 @@ def main():
     del_user_req_count = 0
     del_disk_req_count = 0
     ls_req_count = 0
+    copy_req_count = 0
 
     while True:
         data, addr = sock.recvfrom(1024)
@@ -240,6 +268,13 @@ def main():
             print(f"Current DSS List: {dss}")
             sock.sendto(response, addr)
 
+        elif command == "copy":
+            copy_req_count += 1
+            handler = handle_copy(split, dss, disks, username)
+            response = handler.encode('utf-8')
+            print(f"Copy command request number: {copy_req_count}")
+            sock.sendto(response, addr)
+
         elif command == "print":
             print(f"Disks registered is now: {disks}")
 
@@ -249,5 +284,4 @@ def main():
             sock.sendto(response, addr)
 
 main()
-
 
