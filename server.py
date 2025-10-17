@@ -77,9 +77,9 @@ def handle_configure_dss(split, data_dss, data_disk):
     dssname = split[1]
     #Validate the inputs
     try: 
-
         number_of_disk = int(split[2])
         striping_unit = int(split[3])
+
     except ValueError:
         return "FAILURE: Disks and striping unit must be integers."
     
@@ -155,7 +155,7 @@ def handle_copy(split, dss, data, username):
     # Phase 1:
 
     filename = split[1]
-    filesize = split[2]
+    filesize = int(split[2])
     owner = split[3]
 
     if not dss:
@@ -171,11 +171,40 @@ def handle_copy(split, dss, data, username):
     # Build the response.
     response = f"{dss_name} {num_drives} {striping_unit}"
     for disk_name in dss_info['disks']:
-        response += f" {disk_name} {dss[disk_name]['ip']} {dss[disk_name]['c-port']}"
+        disk_data = data[disk_name]
+        response += f" {disk_name} {disk_data['ip']} {disk_data['c-port']}"
 
-    
+    # Create a pending copy, will use later to actually put the entry in phase 2.
+    if 'pending_copy' not in dss_info:
+        dss_info['pending_copy'] = {}
+
+    dss_info['pending_copy']['filename'] = filename
+    dss_info['pending_copy']['filesize'] = filesize
+    dss_info['pending_copy']['owner'] = owner
 
     return response
+
+def handle_copy_complete(dss, dss_name):
+    # Phase 2:
+    dss_info = dss[dss_name]
+
+    if 'pending_copy' not in dss_info:
+        return "FAILURE"
+    
+    pending = dss_info['pending_copy']
+
+    file_entry = {
+        "filename": pending['filename'],
+        "file_size": pending['filesize'],
+        "owner": pending['owner']
+    }    
+    dss_info['files'].update(file_entry)
+
+    # Get rid of the pending copy as it is now added onto the dss.
+    del dss_info['pending_copy']
+
+    print()
+    return "SUCCESS"
 
 def main():
     # Syntax Check
@@ -270,10 +299,31 @@ def main():
 
         elif command == "copy":
             copy_req_count += 1
+            username = split[3]
             handler = handle_copy(split, dss, disks, username)
             response = handler.encode('utf-8')
             print(f"Copy command request number: {copy_req_count}")
             sock.sendto(response, addr)
+
+            # Skip the rest if there is a failure response.
+            if response == b"FAILURE: No DSS configured.":
+                continue
+
+            dss_name = handler.split()[0]
+
+            # Wait for copy-complete
+            data, addr = sock.recvfrom(1024)
+            message = data.decode("utf-8").strip()
+
+            # Handle client response.
+            if message == "copy-complete":
+
+                response = handle_copy_complete(dss, dss_name)
+                sock.sendto(response.encode('utf-8'), addr)
+            else:
+                sock.sendto(b"FAILURE", addr)
+
+            print(f"DSS '{dss_name}' is now {dss[dss_name]}.")
 
         elif command == "print":
             print(f"Disks registered is now: {disks}")
