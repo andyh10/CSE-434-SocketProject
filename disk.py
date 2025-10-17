@@ -1,17 +1,20 @@
 import socket
 import ipaddress
 import sys
+import threading
 
 def handle_copy_message(sock_peer, storage):
     # Handle incoming peer copy messages.
     # Use in a thread.
 
     while True:
+        print()
+        
         try:
             data, addr = sock_peer.recvfrom(65536) # Large buffer for data.
 
             # Message format: WRITE <filename> <stripe_num> <block_type> <block_data>
-            message_split = data.split()
+            message_split = data.split(b' ', 4) # Do not split the other whitespaces because they could be there in the data.
             command = message_split[0].decode('utf-8')
 
             # Handle WRITE Command
@@ -19,8 +22,9 @@ def handle_copy_message(sock_peer, storage):
                 filename = message_split[1].decode('utf-8')
                 stripe_num = message_split[2].decode('utf-8')
                 block_type = message_split[3].decode('utf-8')
-                block_data = message_split[4].decode('utf-8')
+                block_data = message_split[4]
 
+                # Store the data
                 if filename not in storage:
                     storage[filename] = {}
                 storage[filename][stripe_num] = {
@@ -29,6 +33,10 @@ def handle_copy_message(sock_peer, storage):
                 }
 
                 print(f"Stored {block_type} block for stripe {stripe_num} of file {filename}")
+
+            # Handle READ Command FIXME not done yet
+            elif command == "READ":
+                pass
 
         except Exception:
             print("Error handling peer copy message.")  
@@ -64,18 +72,31 @@ def main():
 
     # Bind to the local IP address and UDP port
     sock_server.bind(('', int(sys.argv[1])))
-    sock_peer = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock_peer.bind(('', int(sys.argv[4])))
 
-    # Send data to server 
-    message = input("Please type the command you want to send to the manager: ")
-    sock_server.sendto(message.encode("utf-8"), (sys.argv[2], int(sys.argv[3])))
+    storage = {}
 
-    data, addr = sock_server.recvfrom(1024)
-    data_decoded = data.decode('utf-8')
+    # Listen for copy requests.
+    listener = threading.Thread(target=handle_copy_message,args=(sock_peer, storage), daemon=True)
+    listener.start()
 
-    print(f"Server Response: {data_decoded}")
+    while True:
+
+        # Send data to server 
+        message = input("Please type the command you want to send to the manager, use \"Exit\" to exit the program: ")
+
+        if message.strip() == "Exit" or message.strip() == "exit":
+            break
+
+        sock_server.sendto(message.encode("utf-8"), (sys.argv[2], int(sys.argv[3])))
+
+        data, addr = sock_server.recvfrom(1024)
+        data_decoded = data.decode('utf-8')
+
+        print(f"Server Response: {data_decoded}")
 
     sock_server.close()
-    
+    sock_peer.close()
+        
 main()
 
