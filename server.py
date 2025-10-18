@@ -206,6 +206,9 @@ def handle_copy_complete(dss, dss_name):
     print()
     return "SUCCESS"
 
+def handle_read(split, addr):
+    print()
+
 def main():
     # Syntax Check
     if len(sys.argv) != 2:
@@ -229,13 +232,9 @@ def main():
     clients = {}
     disks = {}
     dss = {}
-    reg_user_req_count = 0
-    reg_disk_req_count = 0
-    con_dss_req_count  = 0
-    del_user_req_count = 0
-    del_disk_req_count = 0
-    ls_req_count = 0
-    copy_req_count = 0
+    reg_user_req_count = 0, reg_disk_req_count = 0, con_dss_req_count  = 0
+    del_user_req_count = 0, del_disk_req_count = 0
+    ls_req_count = 0, copy_req_count = 0, read_req_count = 0
 
     while True:
         data, addr = sock.recvfrom(1024)
@@ -324,6 +323,13 @@ def main():
                 sock.sendto(b"FAILURE", addr)
 
             print(f"DSS '{dss_name}' is now {dss[dss_name]}.")
+
+        elif command == "read":
+            read_req_count += 1
+            handler = handle_read(split, addr)
+            response = handler.encode('utf-8')
+
+            sock.sendto(response, addr)
 
         elif command == "print":
             print(f"Disks registered is now: {disks}")
