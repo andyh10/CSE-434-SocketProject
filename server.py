@@ -99,7 +99,7 @@ def handle_configure_dss(split, data_dss, data_disk):
     data_dss[dssname] = {
         "disks": [],        #Have disknames as a list
         "striping_unit": striping_unit,
-        "files": {}
+        "files": []
     }
 
     # add to data
@@ -143,10 +143,10 @@ def handle_ls(dss):
         Success.append(f"{dssname}: Disk array with n={n} ({disks}) with striping-unit {striping_unit} B")
         
         #List every file stored on the DSS
-        for file_info in dss_info["files"]:
-            filename = file_info["file_name"]
-            size = file_info["file_size"]
-            owner = file_info["owner"]
+        for file_info in dss_info['files']:
+            filename = file_info['filename']
+            size = file_info['filesize']
+            owner = file_info['owner']
             Success.append(f"{filename} {size} B {owner}")
             
     return "\n".join(Success)
@@ -195,10 +195,10 @@ def handle_copy_complete(dss, dss_name):
 
     file_entry = {
         "filename": pending['filename'],
-        "file_size": pending['filesize'],
+        "filesize": pending['filesize'],
         "owner": pending['owner']
     }    
-    dss_info['files'].update(file_entry)
+    dss_info['files'].append(file_entry)
 
     # Get rid of the pending copy as it is now added onto the dss.
     del dss_info['pending_copy']
@@ -334,4 +334,3 @@ def main():
             sock.sendto(response, addr)
 
 main()
-
