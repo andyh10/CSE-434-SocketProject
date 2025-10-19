@@ -206,6 +206,19 @@ def handle_copy_complete(dss, dss_name):
     print()
     return "SUCCESS"
 
+def handle_decommission_complete(dss, disks, dss_name):
+    # Phase 2: Clean up 
+    dss_info = dss[dss_name]
+    
+    #Free the disk states
+    for diskname in dss_info['disks']:
+        disks[diskname]['state'] = "Free"
+
+    #Remove DSS from its state
+    del dss[dss_name]
+        
+    return "SUCCESS"
+
 def handle_read(split, dss, clients, disks):
     if len(split) != 4:
         return "FAILURE - Incorrect arguments for read command."
@@ -258,6 +271,32 @@ def handle_read(split, dss, clients, disks):
 
     return response
 
+def handle_decommission_dss(split, dss, disks):
+    if len(split) != 2: 
+        return "FAILURE - Incorrect arguments for decommission-dss."
+    
+    dssname = split[1]
+    
+    # Error handling.
+    # DSS not in list of dss's.
+    if dssname not in dss:
+        return f"FAILURE - '{dssname}' not found."
+    
+    #Obtain the DSS parameters
+    dss_info = dss[dssname]
+    striping_unit = dss_info['striping_unit']
+    num_drives = len(dss_info['disks'])
+    
+    # Build the response.
+    response = f"{dssname} {num_drives} {striping_unit} "
+    
+    #Add Information from Disks
+    for diskname in dss_info['disks']:
+        diskinfo = disks[diskname]
+        response += f"{diskname} {diskinfo['ip']} {diskinfo['c-port']} "
+    
+    return response
+
 def main():
     # Syntax Check
     if len(sys.argv) != 2:
@@ -289,7 +328,7 @@ def main():
     ls_req_count = 0
     copy_req_count = 0
     read_req_count = 0
-
+    decom_req_count = 0
     while True:
         data, addr = sock.recvfrom(1024)
 
@@ -384,6 +423,30 @@ def main():
             response = handler.encode('utf-8')
 
             sock.sendto(response, addr)
+            
+        elif command == "decommission-dss":
+            decom_req_count += 1
+            handler = handle_decommission_dss(split, dss, disks)
+            response = handler.encode('utf-8')
+            sock.sendto(response, addr)
+            
+            #Skip process if there is a failure response
+            if response.startswith(b"FAILURE"):
+                continue
+            dssname = split[1]
+            
+            #Waiting for decommission-complete process
+            data, addr = sock.recvfrom(1024)
+            message = data.decode("utf-8").strip()
+
+            # Handle client response.
+            if message == "decommission-complete":
+                response = handle_decommission_complete(dss, disks, dssname)
+                sock.sendto(response.encode('utf-8'), addr)
+            else:
+                sock.sendto(b"FAILURE", addr)
+
+            print(f"DSS '{dss_name}' is now decommmissioned.")
 
         elif command == "print":
             print(f"Disks registered is now: {disks}")
@@ -394,4 +457,5 @@ def main():
             sock.sendto(response, addr)
 
 main()
+
 
