@@ -462,10 +462,10 @@ def main():
                     disks.append(disk_info)
                     
                 # Send DELETE msg for each disk
-                for disks in disks:
+                for disk in disks:
                     deleteMSG = f"DELETE {dss_name}".encode('utf-8')
-                    sock_peer.sendto(deleteMSG, (disks['ip'], disks['c-port']))
-                    print(f"Delete command sent to {disks['name']}")
+                    sock_peer.sendto(deleteMSG, (disk['ip'], disk['c-port']))
+                    print(f"Delete command sent to {disk['name']}")
 
                  # Send complete to server
                 sock_server.sendto(b"decommission-complete", (sys.argv[2], int(sys.argv[3])))
@@ -478,6 +478,11 @@ def main():
     sock_peer.close()
     
 main()
+
+
+
+
+
 
 
 
