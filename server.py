@@ -475,7 +475,7 @@ def main():
             else:
                 sock.sendto(b"FAILURE", addr)
 
-            print(f"DSS '{dss_name}' is now decommmissioned.")
+            print(f"DSS '{dssname}' is now decommmissioned.")
 
         elif command == "print":
             print(f"Disks registered is now: {disks}")
@@ -486,6 +486,7 @@ def main():
             sock.sendto(response, addr)
 
 main()
+
 
 
 
