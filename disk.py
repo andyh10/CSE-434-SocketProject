@@ -50,6 +50,14 @@ def handle_copy_message(sock_peer, storage):
                 else:
                     sock_peer.sendto(b"BLOCK NOT FOUND", addr)
 
+            # Handle FAIL command
+            elif command == "FAIL":
+
+                # Delete the contents.
+                storage = {}
+
+                print(f"Disk failed successfully.")
+
             # Handle DELETE Command
             elif command == "DELETE":
                 dssname = message_split[1].decode('utf-8')
@@ -122,4 +130,5 @@ def main():
     sock_peer.close()
         
 main()
+
 
