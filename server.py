@@ -271,6 +271,21 @@ def handle_read(split, dss, clients, disks):
 
     return response
 
+def handle_read_complete(dss, dssname, username):
+    # Phase 2:
+
+    # Simple error check.
+    if dssname not in dss:
+        return "FAILURE DSS Not Found"
+
+    dss_info = dss[dssname]
+
+    # Get rid of the user in pending.
+    if 'pending_read' in dss_info and username in dss_info['pending_read']:
+        dss_info['pending_read'].remove(username)
+
+    return "SUCCESS"
+
 def handle_decommission_dss(split, dss, disks):
     if len(split) != 2: 
         return "FAILURE - Incorrect arguments for decommission-dss."
@@ -423,6 +438,20 @@ def main():
             response = handler.encode('utf-8')
 
             sock.sendto(response, addr)
+
+            if not response.startswith(b"FAILURE"):
+                dssname = split[1]
+                user = split[3]
+
+                # Listen for correct response.
+                data, addr = sock.recvfrom(1024)
+                message = data.decode('utf-8').strip()
+
+                if message == "read-complete":
+                    result = handle_read_complete(dss, dssname, user)
+                    sock.sendto(result.encode('utf-8'), addr)
+                else:
+                    sock.sendto(b"FAILURE, expected read-complete.", addr)
             
         elif command == "decommission-dss":
             decom_req_count += 1
@@ -457,5 +486,6 @@ def main():
             sock.sendto(response, addr)
 
 main()
+
 
 
