@@ -286,6 +286,35 @@ def handle_read_complete(dss, dssname, username):
 
     return "SUCCESS"
 
+def handle_disk_failure(split, dss, disks):
+    # Error checks.
+    if len(split) != 2:
+        return "FAILURE - Incorrect arguments for disk-failure command."
+
+    dssname = split[1]
+
+    if not dss:
+        return "FAILURE - there are no DSS's configured."
+    
+    if dssname not in dss:
+        return f"FAILURE - {dssname} not in {dss}."
+    
+    dss_info = dss[dssname]
+    num_drives = len(dss_info['disks'])
+    striping_unit = dss_info['striping_unit']
+
+    # Check for any reads in progress
+    if 'pending_read' in dss_info and len(dss_info['pending_read']) > 0:
+        return "FAILURE - DSS has a read in progress."
+
+    # Build the response.
+    response = f"{dssname} {num_drives} {striping_unit}"
+    for disk_name in dss_info['disks']:
+        disk_data = disks[disk_name]
+        response += f" {disk_name} {disk_data['ip']} {disk_data['c-port']}"
+
+    return response
+
 def handle_decommission_dss(split, dss, disks):
     if len(split) != 2: 
         return "FAILURE - Incorrect arguments for decommission-dss."
@@ -344,6 +373,8 @@ def main():
     copy_req_count = 0
     read_req_count = 0
     decom_req_count = 0
+    disk_failure_req_count = 0
+    
     while True:
         data, addr = sock.recvfrom(1024)
 
@@ -453,7 +484,25 @@ def main():
                     sock.sendto(result.encode('utf-8'), addr)
                 else:
                     sock.sendto(b"FAILURE, expected read-complete.", addr)
-            
+
+        elif command == "disk-failure":
+            disk_failure_req_count += 1
+            handler = handle_disk_failure(split, dss, disks)
+            response = handler.encode('utf-8')
+            print(f"Disk-failure request number {disk_failure_req_count}")
+
+            sock.sendto(response, addr)
+
+            if not response.startswith(b"FAILURE"):
+                # Listen for correct response.
+                data, addr = sock.recvfrom(1024)
+                message = data.decode('utf-8').strip()
+
+                if message == "recovery-complete":
+                    sock.sendto(b"SUCCESS", addr)
+                else:
+                    sock.sendto(b"FAILURE - expected recovery-complete.")
+        
         elif command == "decommission-dss":
             decom_req_count += 1
             handler = handle_decommission_dss(split, dss, disks)
@@ -487,6 +536,7 @@ def main():
             sock.sendto(response, addr)
 
 main()
+
 
 
 
