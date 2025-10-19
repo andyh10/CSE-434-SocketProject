@@ -34,9 +34,23 @@ def handle_copy_message(sock_peer, storage):
 
                 print(f"Stored {block_type} block for stripe {stripe_num} of file {filename}")
 
-            # Handle READ Command FIXME not done yet
+            # Handle READ Command
             elif command == "READ":
-                pass
+                filename = message_split[1].decode('utf-8')
+                stripe_num = message_split[2].decode('utf-8')
+                block_idx = int(message_split[3].decode('utf-8'))
+
+                # Check for existing file and stripe, if exists, send the info back.
+                if filename in storage and stripe_num in storage[filename]:
+                    block_info = storage[filename][stripe_num]
+                    block_data = block_info.get('data', b'')
+
+                    sock_peer.sendto(block_data, addr)
+                    print(f"Sent {block_info['type']} block, stripe {stripe_num}, block {block_idx} to user.")
+                else:
+                    sock_peer.sendto(b"BLOCK NOT FOUND", addr)
+
+
 
         except Exception:
             print("Error handling peer copy message.")  
@@ -76,7 +90,7 @@ def main():
 
     storage = {}
 
-    # Listen for copy requests.
+    # Listen for copy requests using a daemon thread.
     listener = threading.Thread(target=handle_copy_message,args=(sock_peer, storage), daemon=True)
     listener.start()
 
@@ -99,4 +113,3 @@ def main():
     sock_peer.close()
         
 main()
-
