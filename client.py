@@ -161,6 +161,7 @@ def main():
 
     while True:
         copy = False 
+        decommission = False
 
         # User input
         message = input("Please type the command you want to send to the manager, use \"Exit\" to exit the program: ")
@@ -170,7 +171,8 @@ def main():
         
         message_split = message.strip().split()
         if message_split[0] == "copy": copy = True
-
+        elif message_split[0] == "decommission-dss": decommission = True
+        
         # Handle copy errors
         if copy:
             try:
@@ -235,9 +237,48 @@ def main():
                 # Wait for a server response
                 data, addr = sock_server.recvfrom(1024)
                 print(f"Server Response: {data.decode('utf-8')}")
+                
+        # Decommission-dss command
+        if decommission:
+            if data_decoded == "FAILURE":
+                print("Decommission-dss failed, continuing...")
+            else:
+                # Spawn threads to copy the file into the DSS's
+                print(f"Decommissioning DSS success'{message_split[1]}'")
+                data_split = data_decoded.strip().split()
+                
+                # Data from server: DSS_NAME NUM_DRIVES STRIPE_UNIT DISK_1 DSS_IP DSS_C-PORT DISK_2...
+                dss_name = data_split[0]
+                num_drives = int(data_split[1])
+                striping_unit = int(data_split[2])
 
+                # Parse disk info
+                disks = []
+                for i in range(num_drives):
+                    idx = 3 + (i * 3)
+                    disk_info = {
+                        'name': data_split[idx],
+                        'ip': data_split[idx + 1],
+                        'c-port': int(data_split[idx + 2])
+                    }
+                    disks.append(disk_info)
+                    
+                # Send DELETE msg for each disk
+                for disks in disks:
+                    deleteMSG = f"DELETE {dss_name}".encode('utf-8')
+                    sock_peer.sendto(deleteMSG, (disks['ip'], disks['c-port']))
+                    print(f"Delete command sent to {disks['name']}")
+
+                 # Send complete to server
+                sock_server.sendto(b"decommission-complete", (sys.argv[2], int(sys.argv[3])))
+
+                # Wait for a server response
+                data, addr = sock_server.recvfrom(1024)
+                print(f"Server Response: {data.decode('utf-8')}")
+                
     sock_server.close()
     sock_peer.close()
     
 main()
+
 
