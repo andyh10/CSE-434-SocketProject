@@ -126,6 +126,169 @@ def send_data_block_to_disk(sock, message, ip, port, disk_name, stripe_num, bloc
     except Exception:
         print(f"Error sending data to {disk_name}.")
 
+def read_file_from_dss(filename, filesize, disks, dss_name, num_drives, striping_unit, sock_peer, error_p=0):
+    # Set the error_p to however much desired.
+    # Reads a file from DSS using block-interleaved distributed parity.
+
+    print(f"Reading {filename} size {filesize} B from {dss_name}")
+    print(f"with error probability of {error_p}%.")
+
+    # Calculate amount of stripes required for file.
+    # This calculation is required to read the blocks.
+    data_blocks_per_stripe = num_drives - 1
+    bytes_per_stripe = data_blocks_per_stripe * striping_unit
+    num_stripes = math.ceil(filesize/bytes_per_stripe)
+ 
+    print(f"\n-- STRIPING CALCULATIONS for '{filename}' --")
+    print(f"Data blocks per stripe: {data_blocks_per_stripe}.")
+    print(f"Bytes per stripe: {bytes_per_stripe}.")
+    print(f"Number of stripes: {num_stripes}.")
+
+    # Create output file for writing to.
+    output_file = f"read-{filename}"
+    output_data = bytearray()
+    
+    for stripe in range(num_stripes):
+        print(f"\nReading stripe {stripe}...")
+
+        stripe_verified = False
+        retry_count = 0
+        max_retry = 5
+
+        # Iterate only until either stripe read is correct or retries exceeeded.
+        while not stripe_verified and retry_count < max_retry:
+            if retry_count > 0:
+                print(f"Retry number {retry_count} for stripe {stripe}")
+
+            # Use threads to read blocks in parallel.
+            stripe_block = [None] * num_drives # Initiate stripe block to nothing, use for checking.
+            threads = []
+
+            for drive in range(num_drives):
+                disk = disks[drive]
+
+                # Create the thread.
+                thread = threading.Thread(
+                    target=read_block_from_disk,
+                    args=(sock_peer, filename, stripe, drive, disk, stripe_block)
+                )
+                threads.append(thread)
+                thread.start()
+
+            # Wait for thread to finish.
+            for thread in threads:
+                thread.join()
+
+            if None in stripe_block:
+                print(f" Error: Failed to read block succesfully for stripe {stripe}")
+                retry_count += 1
+                continue
+
+            # Introduce bit error.
+            for block_idx in range(num_drives):
+                stripe_block[block_idx] = bit_error(stripe_block[block_idx], error_p)
+
+            # Verify Parity.
+            parity_pos = num_drives - ((stripe % num_drives) + 1)
+            parity_verified = verify_parity(stripe_block, parity_pos, striping_unit)
+
+            if parity_verified:
+                print(f"Stripe {stripe} parity verified.")
+                stripe_verified = True
+
+                # Write the data to output_data.
+                data_idx = 0
+                for drive in range(num_drives):
+                    if drive != parity_pos:
+                        block = stripe_block[drive]
+
+                        # Calculate the remaining bytes to write.
+                        bytes_remaining = filesize - len(output_data)
+                        if bytes_remaining > 0:
+                            bytes_to_write = min(len(block), bytes_remaining)
+                            output_data.extend(block[:bytes_to_write]) # Use .extend to write over all of the bytes from block.
+                        
+                        data_idx += 1
+
+            else:
+                print(f"Stripe {stripe} failed parity verification. Retrying...")
+                retry_count += 1
+
+        if not stripe_verified:
+            print(f"Failed to verify stripe {stripe} after {max_retry - 1} retries.")
+            return
+        
+    # Write to the output file.
+    with open(output_file, 'wb') as f:
+        f.write(output_data)
+
+    print(f"\nFile {filename} read successfully. Output written to {output_file}")
+
+    # Verify by using diff.
+    result = subprocess.run(
+        ['diff', filename, output_file],
+        capture_output = True,
+        text = True
+    )
+
+    if result.returncode == 0:
+        print(f"Output matches with original, verified by 'diff'.")
+    else:
+        print(f"Output does not match with original file.")
+        print(result.stdout)
+
+def read_block_from_disk(sock, filename, stripe_num, block_idx, disk, stripe_block):
+    # Thread function to read data blocks from disk.
+
+    try:
+        message = f"READ {filename} {stripe_num} {block_idx}".encode('utf-8')
+        sock.sendto(message, (disk['ip'], disk['c-port']))
+
+        data, addr = sock.recvfrom(65536)
+
+        stripe_block[block_idx] = data
+        print(f"Received block {block_idx} from {disk['name']}, stripe {stripe_num}.")
+
+    except Exception:
+        print(f"Error reading block {block_idx} from {disk['name']}.")
+
+def verify_parity(stripe_block, parity_pos, striping_unit):
+    # Helper function to verify parity for a block.
+
+    computed_parity = bytearray(striping_unit)
+
+    # Compute the parity.
+    for i in range(len(stripe_block)):
+        if i != parity_pos:
+            block = stripe_block[i]
+            for byte in range(striping_unit):
+                computed_parity[byte] ^= block[byte]    
+
+    computed_parity = bytes(computed_parity)
+    actual_parity = stripe_block[parity_pos]
+
+    if computed_parity == actual_parity:
+        return True
+    else:
+        return False
+
+def bit_error(block, error_p):
+    # Helper function to introduce bit error for a block.
+
+    rand = random.randint(0, 100)
+
+    # If random integer is less than the error percentage, introduce the bit error.
+    if rand < error_p:
+        
+        block_array = bytearray(block)
+        random_byte = random.randint(0, len(block_array) - 1)   # Select a random byte.
+        random_bit = random.randint(0, 7)                       # Select a random bit.
+        block_array[random_byte] ^= (1 << random_bit)           # Flip that bit.
+
+        return bytes(block_array)
+
+    return block
+
 def main():
     # Syntax check
     if len(sys.argv) != 5:
@@ -237,7 +400,42 @@ def main():
                 # Wait for a server response
                 data, addr = sock_server.recvfrom(1024)
                 print(f"Server Response: {data.decode('utf-8')}")
-                
+
+        # Read command
+        if message_split[0] == "read":
+            if not data_decoded.startswith("FAILURE"):
+                read_split = data_decoded.split()
+
+                # Data from server: FILESIZE, DSSNAME, NUM_DRIVES, STRIPING_UNIT DISK_1 DISK_IP DISK_C-PORT DISK_2...
+                filename = message_split[2]
+                filesize = int(read_split[0])
+                dssname = read_split[1]
+                num_drives = int(read_split[2])
+                striping_unit = int(read_split[3])
+
+                # Parse disk info
+                disks = []
+                for i in range(num_drives):
+                    idx = 4 + (i * 3)
+                    disk_info = {
+                        'name': read_split[idx],
+                        'ip': read_split[idx + 1],
+                        'c-port': int(read_split[idx + 2])
+                    }
+                    disks.append(disk_info)
+
+                read_file_from_dss(filename, filesize, disks, dssname, num_drives, striping_unit, sock_peer, 0)
+
+                # Send data to server
+                sock_server.sendto(b"read-complete", (sys.argv[2], int(sys.argv[3])))
+
+                # Wait for a server response
+                data, addr = sock_server.recvfrom(1024)
+                print(f"Server Response: {data.decode('utf-8')}")
+
+            else:
+                print("Read failed, continuing...")
+        
         # Decommission-dss command
         if decommission:
             if data_decoded == "FAILURE":
@@ -280,5 +478,6 @@ def main():
     sock_peer.close()
     
 main()
+
 
 
