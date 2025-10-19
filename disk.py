@@ -50,6 +50,15 @@ def handle_copy_message(sock_peer, storage):
                 else:
                     sock_peer.sendto(b"BLOCK NOT FOUND", addr)
 
+            # Handle DELETE Command
+            elif command == "DELETE":
+                dssname = message_split[1].decode('utf-8')
+                
+                # Delete all files associated with desired DSS
+                deleteFiles = [filename for filename in storage.keys()]
+                for filename in deleteFiles:
+                    del storage[filename]
+                print(f"All Data for DSS has been deleted.")
 
 
         except Exception:
@@ -113,3 +122,4 @@ def main():
     sock_peer.close()
         
 main()
+
