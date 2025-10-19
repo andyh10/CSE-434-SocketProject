@@ -4,6 +4,8 @@ import sys
 import os
 import threading
 import math
+import random
+import subprocess
 
 def copy_file_to_dss(filename, filesize, disks, dss_name, num_drives, striping_unit, sock_peer):
     # Copy a file to DSS using block-interleaved distributed parity.
@@ -478,6 +480,7 @@ def main():
     sock_peer.close()
     
 main()
+
 
 
 
