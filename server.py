@@ -436,6 +436,7 @@ def main():
             read_req_count += 1
             handler = handle_read(split, dss, clients, disks)
             response = handler.encode('utf-8')
+            print(f"Read command request number: {read_req_count}")
 
             sock.sendto(response, addr)
 
@@ -486,6 +487,7 @@ def main():
             sock.sendto(response, addr)
 
 main()
+
 
 
 
