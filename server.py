@@ -206,8 +206,57 @@ def handle_copy_complete(dss, dss_name):
     print()
     return "SUCCESS"
 
-def handle_read(split, addr):
-    print()
+def handle_read(split, dss, clients, disks):
+    if len(split) != 4:
+        return "FAILURE - Incorrect arguments for read command."
+
+    dssname = split[1]
+    filename = split[2]
+    requesting_user = split[3]
+
+    # Error handling.
+    # DSS not in list of dss's.
+    if dssname not in dss:
+        return f"FAILURE - '{dssname}' not found."
+    
+    # Check if user exists.
+    if requesting_user not in clients:
+        return f"FAILURE - '{requesting_user}' is not a part of registered users."
+    
+    dss_info = dss[dssname]
+    file_found = None
+
+    # Find the file
+    for file in dss_info['files']:
+        if file['filename'] == filename:
+            file_found = file
+            break
+
+    if file_found is None:
+        return f"FAILURE - '{filename}' not found in {dssname}."
+    
+    # Check if user is the owner.
+    if requesting_user != file_found['owner']:
+        return "FAILURE - You are not the owner."
+    
+    filesize = file['filesize']
+    num_drives = len(dss_info['disks'])
+    striping_unit = dss_info['striping_unit']
+
+    # Build the response.
+    response = f"{filesize} {dssname} {num_drives} {striping_unit}"
+
+    # List the dss's.
+    for diskname in dss_info['disks']:
+        diskinfo = disks[diskname]
+        response += f"{diskname} {diskinfo['ip']} {diskinfo['c-port']}"
+
+    # Mark the read as in-progress in the dss dictionary.
+    if 'pending_read' not in dss_info:
+        dss_info['pending_read'] = []
+    dss_info['pending_read'].append(requesting_user)
+
+    return response
 
 def main():
     # Syntax Check
@@ -232,9 +281,14 @@ def main():
     clients = {}
     disks = {}
     dss = {}
-    reg_user_req_count = 0, reg_disk_req_count = 0, con_dss_req_count  = 0
-    del_user_req_count = 0, del_disk_req_count = 0
-    ls_req_count = 0, copy_req_count = 0, read_req_count = 0
+    reg_user_req_count = 0
+    reg_disk_req_count = 0
+    con_dss_req_count  = 0
+    del_user_req_count = 0
+    del_disk_req_count = 0
+    ls_req_count = 0
+    copy_req_count = 0
+    read_req_count = 0
 
     while True:
         data, addr = sock.recvfrom(1024)
@@ -326,7 +380,7 @@ def main():
 
         elif command == "read":
             read_req_count += 1
-            handler = handle_read(split, addr)
+            handler = handle_read(split, dss, clients, disks)
             response = handler.encode('utf-8')
 
             sock.sendto(response, addr)
