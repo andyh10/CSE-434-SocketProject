@@ -244,12 +244,12 @@ def handle_read(split, dss, clients, disks):
     striping_unit = dss_info['striping_unit']
 
     # Build the response.
-    response = f"{filesize} {dssname} {num_drives} {striping_unit}"
+    response = f"{filesize} {dssname} {num_drives} {striping_unit} "
 
     # List the dss's.
     for diskname in dss_info['disks']:
         diskinfo = disks[diskname]
-        response += f"{diskname} {diskinfo['ip']} {diskinfo['c-port']}"
+        response += f"{diskname} {diskinfo['ip']} {diskinfo['c-port']} "
 
     # Mark the read as in-progress in the dss dictionary.
     if 'pending_read' not in dss_info:
@@ -394,3 +394,4 @@ def main():
             sock.sendto(response, addr)
 
 main()
+
