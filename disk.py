@@ -1,134 +1,546 @@
 import socket
 import ipaddress
 import sys
-import threading
+import random
 
-def handle_copy_message(sock_peer, storage):
-    # Handle incoming peer copy messages.
-    # Use in a thread.
+def handle_register_user(split, data):
+    # Syntax check
+    if len(split) != 5:
+        return "FAILURE: Please make sure you have the correct arguments."
+    
+    username = split[1]
+    ip = split[2]
+    mport = split[3]
+    cport = split[4]
 
-    while True:
-        print()
+    if len(username) > 15:
+        return "FAILURE: User name has to be 15 characters or less."
+
+    if username in data:
+        return "FAILURE: User already in the list."
+    
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return "FAILURE: Invalid IP address for register-user-command."
+
+    for values in data.values():
+        if values["m-port"] == mport or values["c-port"] == cport:
+            return "FAILURE: Ports are already in use."
         
-        try:
-            data, addr = sock_peer.recvfrom(65536) # Large buffer for data.
+    data[username] = {
+        "ip": ip,
+        "m-port": mport,
+        "c-port": cport
+    }
+    return "SUCCESS"
 
-            # Message format: WRITE <filename> <stripe_num> <block_type> <block_data>
-            message_split = data.split(b' ', 4) # Do not split the other whitespaces because they could be there in the data.
-            command = message_split[0].decode('utf-8')
+def handle_register_disk(split, data):
+    # Syntax check
+    if len(split) != 5:
+        return "FAILURE: Please make sure you have the correct arguments."
+    
+    diskname = split[1]
+    ip = split[2]
+    mport = split[3]
+    cport = split[4]
+    state = "Free"
 
-            # Handle WRITE Command
-            if command == "WRITE":
-                filename = message_split[1].decode('utf-8')
-                stripe_num = message_split[2].decode('utf-8')
-                block_type = message_split[3].decode('utf-8')
-                block_data = message_split[4]
+    if len(diskname) > 15:
+        return "FAILURE: Disk name has to be 15 characters or less."
 
-                # Store the data
-                if filename not in storage:
-                    storage[filename] = {}
-                storage[filename][stripe_num] = {
-                    'type': block_type,
-                    'data': block_data
-                }
+    if diskname in data:
+        return "FAILURE: Disk already in the list."  
 
-                print(f"Stored {block_type} block for stripe {stripe_num} of file {filename}")
+    try:
+        ipaddress.ip_address(ip)
+    except ValueError:
+        return "FAILURE: Invalid IP address for register-disk-command."
 
-            # Handle READ Command
-            elif command == "READ":
-                filename = message_split[1].decode('utf-8')
-                stripe_num = message_split[2].decode('utf-8')
-                block_idx = int(message_split[3].decode('utf-8'))
+    for values in data.values():
+        if values["m-port"] == mport or values["c-port"] == cport:
+            return "FAILURE: Ports are already in use."
+        
+    data[diskname] = {
+        "ip": ip,
+        "m-port": mport,
+        "c-port": cport,
+        "state": state
+    }
+    return "SUCCESS"
 
-                # Check for existing file and stripe, if exists, send the info back.
-                if filename in storage and stripe_num in storage[filename]:
-                    block_info = storage[filename][stripe_num]
-                    block_data = block_info.get('data', b'')
+def handle_configure_dss(split, data_dss, data_disk):
+    # Syntax check
+    if len(split) != 4:
+        return "FAILURE: Please make sure you have the correct arguments."
+    
+    dssname = split[1]
+    #Validate the inputs
+    try: 
+        number_of_disk = int(split[2])
+        striping_unit = int(split[3])
 
-                    sock_peer.sendto(block_data, addr)
-                    print(f"Sent {block_info['type']} block, stripe {stripe_num}, block {block_idx} to user.")
-                else:
-                    sock_peer.sendto(b"BLOCK NOT FOUND", addr)
+    except ValueError:
+        return "FAILURE: Disks and striping unit must be integers."
+    
+    if number_of_disk < 3:
+        return "FAILURE: Make sure the number of disks for the DSS is greater than or equal to 3."
+    
+    if sum(1 for disk in data_disk.values() if disk['state'] == "Free") < number_of_disk:
+        return "FAILURE: Insufficient amount of free disks for DSS."
 
-            # Handle FAIL command
-            elif command == "FAIL":
+    if not (striping_unit == 128 or striping_unit == 256 or striping_unit == 512 or striping_unit == 1024):
+        return "FAILURE: Make sure the striping unit is beteen 128 and 1024 bytes."
+    
+    if dssname in data_dss:
+        return "FAILURE: Dss name already in use."
+    
+    # Initialize dss entry to have disks, striping unit, and files.
+    data_dss[dssname] = {
+        "disks": [],        #Have disknames as a list
+        "striping_unit": striping_unit,
+        "files": []
+    }
 
-                # Delete the contents.
-                storage = {}
+    # add to data
+    for i in range(number_of_disk):
+        for disk_name, disk in data_disk.items():
+            if disk['state'] == "Free":
+                data_dss[dssname]["disks"].append(disk_name)
+                disk['state'] = "InDSS"
+                break    
 
-                print(f"Disk failed successfully.")
+    return "SUCCESS"
 
-            # Handle DELETE Command
-            elif command == "DELETE":
-                dssname = message_split[1].decode('utf-8')
-                
-                # Delete all files associated with desired DSS
-                deleteFiles = [filename for filename in storage.keys()]
-                for filename in deleteFiles:
-                    del storage[filename]
-                print(f"All Data for DSS has been deleted.")
+def deregister_user(username, data):
+    if username in data:
+        del data[username]
+        return "SUCCESS"
+    else:
+        return "FAILURE: User not in system."
+  
+def deregister_disk(diskname, data):
+    if diskname in data:
+        if data[diskname]['state'] == "InDSS":
+            return "FAILURE: Disk in use."
+        else:
+            del data[diskname]
+            return "SUCCESS"     
+    else:
+        return "FAILURE: Disk not in system."
+    
+def handle_ls(dss):
+    if not dss:
+        return "FAILURE: There is no DSS configured."
+    
+    Success = ["SUCCESS"]   # Indicate success line
+    
+    #We need to iterate each DSS
+    for dssname, dss_info in dss.items():
+        disks = ", ".join(dss_info["disks"])
+        striping_unit = dss_info["striping_unit"]
+        n = len(dss_info["disks"])
+        Success.append(f"{dssname}: Disk array with n={n} ({disks}) with striping-unit {striping_unit} B")
+        
+        #List every file stored on the DSS
+        for file_info in dss_info['files']:
+            filename = file_info['filename']
+            size = file_info['filesize']
+            owner = file_info['owner']
+            Success.append(f"{filename} {size} B {owner}")
+            
+    return "\n".join(Success)
 
+def handle_copy(split, dss, data, username):
+    # Phase 1:
 
-        except Exception:
-            print("Error handling peer copy message.")  
+    filename = split[1]
+    filesize = int(split[2])
+    owner = split[3]
+
+    if not dss:
+        return "FAILURE: No DSS configured."
+    
+    # Select a random dss.
+    dss_name = random.choice(list(dss.keys()))
+    dss_info = dss[dss_name]
+
+    num_drives = len(dss_info['disks'])
+    striping_unit = dss_info['striping_unit']
+
+    # Build the response.
+    response = f"{dss_name} {num_drives} {striping_unit}"
+    for disk_name in dss_info['disks']:
+        disk_data = data[disk_name]
+        response += f" {disk_name} {disk_data['ip']} {disk_data['c-port']}"
+
+    # Create a pending copy, will use later to actually put the entry in phase 2.
+    if 'pending_copy' not in dss_info:
+        dss_info['pending_copy'] = {}
+
+    dss_info['pending_copy']['filename'] = filename
+    dss_info['pending_copy']['filesize'] = filesize
+    dss_info['pending_copy']['owner'] = owner
+
+    return response
+
+def handle_copy_complete(dss, dss_name):
+    # Phase 2:
+    dss_info = dss[dss_name]
+
+    if 'pending_copy' not in dss_info:
+        return "FAILURE"
+    
+    pending = dss_info['pending_copy']
+
+    file_entry = {
+        "filename": pending['filename'],
+        "filesize": pending['filesize'],
+        "owner": pending['owner']
+    }    
+    dss_info['files'].append(file_entry)
+
+    # Get rid of the pending copy as it is now added onto the dss.
+    del dss_info['pending_copy']
+
+    print()
+    return "SUCCESS"
+
+def handle_decommission_complete(dss, disks, dss_name):
+    # Phase 2: Clean up 
+    dss_info = dss[dss_name]
+    
+    #Free the disk states
+    for diskname in dss_info['disks']:
+        disks[diskname]['state'] = "Free"
+
+    #Remove DSS from its state
+    del dss[dss_name]
+        
+    return "SUCCESS"
+
+def handle_read(split, dss, clients, disks):
+    if len(split) != 4:
+        return "FAILURE - Incorrect arguments for read command."
+
+    dssname = split[1]
+    filename = split[2]
+    requesting_user = split[3]
+
+    # Error handling.
+    # DSS not in list of dss's.
+    if dssname not in dss:
+        return f"FAILURE - '{dssname}' not found."
+    
+    # Check if user exists.
+    if requesting_user not in clients:
+        return f"FAILURE - '{requesting_user}' is not a part of registered users."
+    
+    dss_info = dss[dssname]
+    file_found = None
+
+    # Find the file
+    for file in dss_info['files']:
+        if file['filename'] == filename:
+            file_found = file
+            break
+
+    if file_found is None:
+        return f"FAILURE - '{filename}' not found in {dssname}."
+    
+    # Check if user is the owner.
+    if requesting_user != file_found['owner']:
+        return "FAILURE - You are not the owner."
+    
+    filesize = file['filesize']
+    num_drives = len(dss_info['disks'])
+    striping_unit = dss_info['striping_unit']
+
+    # Build the response.
+    response = f"{filesize} {dssname} {num_drives} {striping_unit} "
+
+    # List the dss's.
+    for diskname in dss_info['disks']:
+        diskinfo = disks[diskname]
+        response += f"{diskname} {diskinfo['ip']} {diskinfo['c-port']} "
+
+    # Mark the read as in-progress in the dss dictionary.
+    if 'pending_read' not in dss_info:
+        dss_info['pending_read'] = []
+    dss_info['pending_read'].append(requesting_user)
+
+    return response
+
+def handle_read_complete(dss, dssname, username):
+    # Phase 2:
+
+    # Simple error check.
+    if dssname not in dss:
+        return "FAILURE DSS Not Found"
+
+    dss_info = dss[dssname]
+
+    # Get rid of the user in pending.
+    if 'pending_read' in dss_info and username in dss_info['pending_read']:
+        dss_info['pending_read'].remove(username)
+
+    return "SUCCESS"
+
+def handle_disk_failure(split, dss, disks):
+    # Error checks.
+    if len(split) != 2:
+        return "FAILURE - Incorrect arguments for disk-failure command."
+
+    dssname = split[1]
+
+    if not dss:
+        return "FAILURE - there are no DSS's configured."
+    
+    if dssname not in dss:
+        return f"FAILURE - {dssname} not in {dss}."
+    
+    dss_info = dss[dssname]
+    num_drives = len(dss_info['disks'])
+    striping_unit = dss_info['striping_unit']
+
+    # Check for any reads in progress
+    if 'pending_read' in dss_info and len(dss_info['pending_read']) > 0:
+        return "FAILURE - DSS has a read in progress."
+
+    # Build the response.
+    response = f"{dssname} {num_drives} {striping_unit}"
+    for disk_name in dss_info['disks']:
+        disk_data = disks[disk_name]
+        response += f" {disk_name} {disk_data['ip']} {disk_data['c-port']}"
+    response += " FILES:"
+    for file in dss_info['files']:
+        response += f" {file['filename']}"
+
+    return response
+
+def handle_decommission_dss(split, dss, disks):
+    if len(split) != 2: 
+        return "FAILURE - Incorrect arguments for decommission-dss."
+    
+    dssname = split[1]
+    
+    # Error handling.
+    # DSS not in list of dss's.
+    if dssname not in dss:
+        return f"FAILURE - '{dssname}' not found."
+    
+    #Obtain the DSS parameters
+    dss_info = dss[dssname]
+    striping_unit = dss_info['striping_unit']
+    num_drives = len(dss_info['disks'])
+    
+    # Build the response.
+    response = f"{dssname} {num_drives} {striping_unit} "
+    
+    #Add Information from Disks
+    for diskname in dss_info['disks']:
+        diskinfo = disks[diskname]
+        response += f"{diskname} {diskinfo['ip']} {diskinfo['c-port']} "
+    
+    return response
 
 def main():
-    # Syntax check
-    if len(sys.argv) != 5:
+    # Syntax Check
+    if len(sys.argv) != 2:
         print("Please make sure you have the correct arguments.")
-        print("disk.py <disk_port> <server_ip> <server_port> <peer_port>")
+        print("server.py <server_port>")
         exit(-1)
 
     if int(sys.argv[1]) < 13100 or int(sys.argv[1]) > 13199:
-        print("Disk Port - Please use a port number in the range of 13100-13199.")
+        print("Please use a port number in the range of 13100-13199.")
         exit(-1)
 
-    try:
-        ipaddress.ip_address(sys.argv[2])
-    except ValueError:
-        print("Invalid server IP address")
-        exit(-1)
+    # Create UDP socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-    if int(sys.argv[3]) < 13100 or int(sys.argv[3]) > 13199:
-        print("Server Port - Please use a port number in the range of 13100-13199.")
-        exit(-1)
+    # Bind Socket
+    sock.bind(('', int(sys.argv[1])))
 
-    if int(sys.argv[4]) < 13100 or int(sys.argv[4]) > 13199:
-        print("Peer Port - Please use a port number in the range of 13100-13199.")
-        exit(-1)
+    print("Server is now online !")
 
-    # Create socket
-    sock_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock_peer = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    # Bind to the local IP address and UDP port
-    sock_server.bind(('', int(sys.argv[1])))
-    sock_peer.bind(('', int(sys.argv[4])))
-
-    storage = {}
-
-    # Listen for copy requests using a daemon thread.
-    listener = threading.Thread(target=handle_copy_message,args=(sock_peer, storage), daemon=True)
-    listener.start()
-
+    # Dictionaries and ints to store data
+    clients = {}
+    disks = {}
+    dss = {}
+    reg_user_req_count = 0
+    reg_disk_req_count = 0
+    con_dss_req_count  = 0
+    del_user_req_count = 0
+    del_disk_req_count = 0
+    ls_req_count = 0
+    copy_req_count = 0
+    read_req_count = 0
+    decom_req_count = 0
+    disk_failure_req_count = 0
+    
     while True:
+        data, addr = sock.recvfrom(1024)
 
-        # Send data to server 
-        message = input("Please type the command you want to send to the manager, use \"Exit\" to exit the program: ")
+        #Allocate the message
+        message = data.decode("utf-8").strip()
+        split = message.split()
+        if not split:
+            continue
 
-        if message.strip() == "Exit" or message.strip() == "exit":
-            break
+        command = split[0]
 
-        sock_server.sendto(message.encode("utf-8"), (sys.argv[2], int(sys.argv[3])))
+        #Handle Commands
+        if command == "register-user":
+            reg_user_req_count += 1
+            handler = handle_register_user(split, clients)
+            response = handler.encode('utf-8')
+            print(f"Register-user command request number: {reg_user_req_count}")
+            print(f"Users registered is now: {clients}")
+            sock.sendto(response, addr)
 
-        data, addr = sock_server.recvfrom(1024)
-        data_decoded = data.decode('utf-8')
+        elif command == "register-disk":
+            reg_disk_req_count += 1
+            handler = handle_register_disk(split, disks)
+            response = handler.encode('utf-8')
+            print(f"Register-disk command request number: {reg_disk_req_count}")
+            print(f"Disks registered is now: {disks}")
+            sock.sendto(response, addr)
 
-        print(f"Server Response: {data_decoded}")
+        elif command == "configure-dss":
+            con_dss_req_count += 1
+            handler = handle_configure_dss(split, dss, disks)
+            print(f"Configure-dss command request number: {con_dss_req_count}")
+            print(f"Configured dss's is now: {dss}")
+            response = handler.encode('utf-8')
+            sock.sendto(response, addr)
 
-    sock_server.close()
-    sock_peer.close()
+        elif command == "deregister-user":
+            del_user_req_count += 1
+            username = split[1]
+            handler = deregister_user(username, clients)
+            print(f"Delete-user command request number: {del_user_req_count}")
+            response = handler.encode('utf-8')
+            sock.sendto(response, addr)
+
+        elif command == "deregister-disk":
+            del_disk_req_count += 1
+            diskname = split[1]
+            handler = deregister_disk(diskname, disks)
+            print(f"Delete-disk command request number: {del_disk_req_count}")
+            response = handler.encode('utf-8')
+            sock.sendto(response, addr)
+            
+        elif command == "ls":
+            ls_req_count += 1
+            handler = handle_ls(dss)
+            response = handler.encode('utf-8')
+            print(f"LS command request number: {ls_req_count}")
+            print(f"Current DSS List: {dss}")
+            sock.sendto(response, addr)
+
+        elif command == "copy":
+            copy_req_count += 1
+            username = split[3]
+            handler = handle_copy(split, dss, disks, username)
+            response = handler.encode('utf-8')
+            print(f"Copy command request number: {copy_req_count}")
+            sock.sendto(response, addr)
+
+            # Skip the rest if there is a failure response.
+            if response == b"FAILURE: No DSS configured.":
+                continue
+
+            dss_name = handler.split()[0]
+
+            # Wait for copy-complete
+            data, addr = sock.recvfrom(1024)
+            message = data.decode("utf-8").strip()
+
+            # Handle client response.
+            if message == "copy-complete":
+
+                response = handle_copy_complete(dss, dss_name)
+                sock.sendto(response.encode('utf-8'), addr)
+            else:
+                sock.sendto(b"FAILURE", addr)
+
+            print(f"DSS '{dss_name}' is now {dss[dss_name]}.")
+
+        elif command == "read":
+            read_req_count += 1
+            handler = handle_read(split, dss, clients, disks)
+            response = handler.encode('utf-8')
+            print(f"Read command request number: {read_req_count}")
+
+            sock.sendto(response, addr)
+
+            if not response.startswith(b"FAILURE"):
+                dssname = split[1]
+                user = split[3]
+
+                # Listen for correct response.
+                data, addr = sock.recvfrom(1024)
+                message = data.decode('utf-8').strip()
+
+                if message == "read-complete":
+                    result = handle_read_complete(dss, dssname, user)
+                    sock.sendto(result.encode('utf-8'), addr)
+                else:
+                    sock.sendto(b"FAILURE, expected read-complete.", addr)
+
+        elif command == "disk-failure":
+            disk_failure_req_count += 1
+            handler = handle_disk_failure(split, dss, disks)
+            response = handler.encode('utf-8')
+            print(f"Disk-failure request number {disk_failure_req_count}")
+
+            sock.sendto(response, addr)
+
+            if not response.startswith(b"FAILURE"):
+                # Listen for correct response.
+                data, addr = sock.recvfrom(1024)
+                message = data.decode('utf-8').strip()
+
+                if message == "recovery-complete":
+                    sock.sendto(b"SUCCESS", addr)
+                else:
+                    sock.sendto(b"FAILURE - expected recovery-complete.", addr)
         
+        elif command == "decommission-dss":
+            decom_req_count += 1
+            handler = handle_decommission_dss(split, dss, disks)
+            response = handler.encode('utf-8')
+            sock.sendto(response, addr)
+            
+            #Skip process if there is a failure response
+            if response.startswith(b"FAILURE"):
+                continue
+            dssname = split[1]
+            
+            #Waiting for decommission-complete process
+            data, addr = sock.recvfrom(1024)
+            message = data.decode("utf-8").strip()
+
+            # Handle client response.
+            if message == "decommission-complete":
+                response = handle_decommission_complete(dss, disks, dssname)
+                sock.sendto(response.encode('utf-8'), addr)
+            else:
+                sock.sendto(b"FAILURE", addr)
+
+            print(f"DSS '{dssname}' is now decommmissioned.")
+
+        elif command == "print":
+            print(f"Disks registered is now: {disks}")
+
+        else:
+            handler = "Invalid command. Commands available: register-user, register-disk, configure-dss, deregister-user, deregister-disk."
+            response = handler.encode('utf-8')
+            sock.sendto(response, addr)
+
 main()
+
+
+
 
 
