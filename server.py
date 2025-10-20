@@ -312,6 +312,9 @@ def handle_disk_failure(split, dss, disks):
     for disk_name in dss_info['disks']:
         disk_data = disks[disk_name]
         response += f" {disk_name} {disk_data['ip']} {disk_data['c-port']}"
+    response += " FILES:"
+    for file in dss_info['files']:
+        response += f" {file['filename']}"
 
     return response
 
@@ -501,7 +504,7 @@ def main():
                 if message == "recovery-complete":
                     sock.sendto(b"SUCCESS", addr)
                 else:
-                    sock.sendto(b"FAILURE - expected recovery-complete.")
+                    sock.sendto(b"FAILURE - expected recovery-complete.", addr)
         
         elif command == "decommission-dss":
             decom_req_count += 1
@@ -536,7 +539,6 @@ def main():
             sock.sendto(response, addr)
 
 main()
-
 
 
 
