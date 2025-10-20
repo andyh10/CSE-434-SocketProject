@@ -35,10 +35,10 @@ def copy_file_to_dss(filename, filesize, disks, dss_name, num_drives, striping_u
         end_byte = min(start_byte + bytes_per_stripe, filesize) # min lets us end based on filesize
         stripe_data = file_data[start_byte:end_byte]
 
-        # # Debug prints.
-        # print(f"Start byte: {start_byte}.")
-        # print(f"End byte: {end_byte}.")
-        # print(f"Stripe data: {stripe_data}.")
+        # Debug prints.
+        print(f"Start byte: {start_byte}.")
+        print(f"End byte: {end_byte}.")
+        print(f"Stripe data: {stripe_data}.")
 
         # Split into n-1 data blocks.
         data_blocks = []
@@ -59,11 +59,10 @@ def copy_file_to_dss(filename, filesize, disks, dss_name, num_drives, striping_u
 
             data_blocks.append(block)   
 
-            # # Debug prints.
-            # print(f"\nBlock Start: {block_start}.")
-            # print(f"Stripe data length: {len(stripe_data)}.")
-            # print(f"Block: {block}.")
-                 
+            # Debug prints.
+            print(f"\nBlock Start: {block_start}.")
+            print(f"Stripe data length: {len(stripe_data)}.")
+            print(f"Block: {block}.")        
 
         # Compute Parity.
         parity_block = bytearray(striping_unit)
@@ -87,10 +86,10 @@ def copy_file_to_dss(filename, filesize, disks, dss_name, num_drives, striping_u
                 stripe_blocks.append(('data', data_blocks[data_idx]))
                 data_idx += 1
         
-        # # Debug prints.
-        # print(f"{stripe_blocks[0]}")
-        # print(f"{stripe_blocks[1]}")
-        # print(f"{stripe_blocks[2]}")
+        # Debug prints.
+        print(f"{stripe_blocks[0]}")
+        print(f"{stripe_blocks[1]}")
+        print(f"{stripe_blocks[2]}")
 
         # Use threads to send the blocks in parallel.
         # This sends the stripe
@@ -208,6 +207,7 @@ def read_file_from_dss(filename, filesize, disks, dss_name, num_drives, striping
                         bytes_remaining = filesize - len(output_data)
                         if bytes_remaining > 0:
                             bytes_to_write = min(len(block), bytes_remaining)
+                            print(f"DEBUG: Writing block from drive {drive}, parity_pos={parity_pos}, block preview: {block[:20]}")
                             output_data.extend(block[:bytes_to_write]) # Use .extend to write over all of the bytes from block.
                         
                         data_idx += 1
@@ -300,7 +300,90 @@ def simulate_disk_failure(disks, dss_name, num_drives, striping_unit, sock_peer,
     failed_disk_idx = random.randint(0, num_drives - 1)
     failed_disk = disks[failed_disk_idx]
 
+    # Send message to disk to fail.
     print(f"Selected disk {failed_disk_idx} - {failed_disk['name']} to fail.")
+    sock_peer.sendto(b"FAIL", (failed_disk['ip'], failed_disk['c-port']))
+
+    # Check for correct message back.
+    data, addr = sock_peer.recvfrom(1024)
+    if data == b"fail-complete":
+        print(f"Received fail-complete from {failed_disk['name']}, continuing...")
+    else:
+        print(f"Did not receive fail-complete from {failed_disk['name']}, exiting...")
+        return
+    
+    # Reconstruct the disk.
+    print(f"\nReconstructing disk {failed_disk_idx}...")
+
+    # Get a list of disks that work.
+    working_disks = []
+    for i in range(num_drives):
+        if i != failed_disk_idx:
+            working_disks.append(i) 
+
+    # For each file that is a part of the DSS
+    for filename in storage:
+        print(f" Reconstructing file '{filename}")
+
+        working_disk_idx = working_disks[0]
+        working_disk = disks[working_disk_idx]
+
+        stripes_found = []
+        stripe_num = 0
+
+        # Find stripes by reading from working disk.
+        while stripe_num < 1000:
+            message = f"READ {filename} {stripe_num} {working_disk_idx}".encode('utf-8')
+            sock_peer.sendto(message, (working_disk['ip'], working_disk['c-port']))
+
+            block_data, _ = sock_peer.recvfrom(65536)
+            if block_data == b"BLOCK NOT FOUND":
+                break
+            else:
+                stripes_found.append(stripe_num)
+                stripe_num += 1
+
+        # For each stripe of the file
+        for stripe in stripes_found:
+            # Find the parity.
+            parity_pos = num_drives - ((int(stripe) % num_drives) + 1)
+
+            # Read blocks
+            blocks = []
+            for disk_idx in working_disks:
+                disk = disks[disk_idx]
+
+                # Request block
+                message = f"READ {filename} {stripe} {disk_idx}".encode('utf-8')
+                sock_peer.sendto(message, (disk['ip'], disk['c-port']))
+
+                block_data, addr = sock_peer.recvfrom(65536)
+                blocks.append(block_data)
+
+            # Compute the new block.
+            computed_block = bytearray(striping_unit)
+            for block in blocks:
+                # Pad if necessary
+                if len(block) < striping_unit:
+                    block = block + b'\x00' * (striping_unit - len(block))
+
+                for i in range(striping_unit):
+                    computed_block[i] ^= block[i]
+            computed_block = bytes(computed_block)
+
+            # Determine the type of block.
+            if failed_disk_idx == parity_pos:
+                block_type = "parity"
+            else:
+                block_type = "data"
+
+            # Send the new block to failed disk.
+            message = f"WRITE {filename} {stripe} {block_type} ".encode('utf-8') + computed_block
+            sock_peer.sendto(message, (failed_disk['ip'], failed_disk['c-port']))
+
+            print(f"Restored {block_type} block to stripe {stripe}.")
+
+    print(f"Disk {failed_disk_idx}, name '{failed_disk['name']}' reconstruction complete.")
 
 def main():
     # Syntax check
@@ -336,7 +419,7 @@ def main():
     sock_peer.bind(('', int(sys.argv[4])))
 
     while True:
-        copy = False 
+        copy = False
         decommission = False
 
         # User input
@@ -452,6 +535,10 @@ def main():
         # Disk-Failure command
         if message_split[0] == "disk-failure":
             disk_split = data_decoded.split()
+            if len(message_split) != 2:
+                print("Make sure the syntax for disk-failure is correct.")
+                continue
+            dss_name = message_split[1]
 
             if data_decoded.startswith("FAILURE"):
                 print(f"disk-failure failed for {dss_name}")
@@ -464,8 +551,13 @@ def main():
 
                 # Parse disk info
                 disks = []
+                storage = []
+                file_idx = 0
                 for i in range(num_drives):
-                    idx = 4 + (i * 3)
+                    idx = 3 + (i * 3)
+
+                    file_idx = idx
+
                     disk_info = {
                         'name': disk_split[idx],
                         'ip': disk_split[idx + 1],
@@ -473,7 +565,19 @@ def main():
                     }
                     disks.append(disk_info)
 
-                simulate_disk_failure(disks, dss_name, num_drives, striping_unit, sock_peer)
+                # Add all files to a list.
+                if file_idx != -1:
+                    for i in range(file_idx+4, len(disk_split)):
+                        print(f"{disk_split[i]}")
+                        storage.append(disk_split[i])
+
+                print(f"{storage}")
+
+                simulate_disk_failure(disks, dss_name, num_drives, striping_unit, sock_peer, storage)
+
+                # Send recovery-complete message and wait for response.
+                sock_server.sendto(b"recovery-complete", addr)
+                data, addr = sock_server.recvfrom(1024)
         
         # Decommission-dss command
         if decommission:
@@ -517,7 +621,6 @@ def main():
     sock_peer.close()
     
 main()
-
 
 
 
