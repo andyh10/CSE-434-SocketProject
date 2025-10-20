@@ -291,6 +291,17 @@ def bit_error(block, error_p):
 
     return block
 
+def simulate_disk_failure(disks, dss_name, num_drives, striping_unit, sock_peer, storage):
+    # Simulates a failure on a DSS.
+
+    print(f"Simulating failure on {dss_name}...")
+
+    # Select a random disk.
+    failed_disk_idx = random.randint(0, num_drives - 1)
+    failed_disk = disks[failed_disk_idx]
+
+    print(f"Selected disk {failed_disk_idx} - {failed_disk['name']} to fail.")
+
 def main():
     # Syntax check
     if len(sys.argv) != 5:
@@ -437,6 +448,32 @@ def main():
 
             else:
                 print("Read failed, continuing...")
+
+        # Disk-Failure command
+        if message_split[0] == "disk-failure":
+            disk_split = data_decoded.split()
+
+            if data_decoded.startswith("FAILURE"):
+                print(f"disk-failure failed for {dss_name}")
+            else:
+
+                # Data from server: DSSNAME NUM_DRIVES STRIPING_UNIT DISK1 DISK_IP DISK_C-PORT DISK2...
+                dssname = disk_split[0]
+                num_drives = int(disk_split[1])
+                striping_unit = int(disk_split[2])
+
+                # Parse disk info
+                disks = []
+                for i in range(num_drives):
+                    idx = 4 + (i * 3)
+                    disk_info = {
+                        'name': disk_split[idx],
+                        'ip': disk_split[idx + 1],
+                        'c-port': int(disk_split[idx + 2])
+                    }
+                    disks.append(disk_info)
+
+                simulate_disk_failure(disks, dss_name, num_drives, striping_unit, sock_peer)
         
         # Decommission-dss command
         if decommission:
@@ -480,6 +517,7 @@ def main():
     sock_peer.close()
     
 main()
+
 
 
 
